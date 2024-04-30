@@ -6,6 +6,10 @@ use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 
+//TODO:
+// 1. Make this more shell like supporting commands like ls and showing who is connected
+// 2. Make server choose which client can connect
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let (tx, mut rx) = mpsc::channel(100);
