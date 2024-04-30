@@ -12,7 +12,7 @@ async fn main() -> Result<()> {
         panic!("Need to pass in IP address as argument for client");
     }
 
-    let mut stream = TcpStream::connect(format!("{:?}:7878", args[0])).await?;
+    let mut stream = TcpStream::connect(format!("{}:7878", args[1])).await?;
     println!("Connected to server");
 
     let msg = b"Hello, server!";
