@@ -18,10 +18,6 @@ async fn main() -> Result<()> {
     let mut stream = TcpStream::connect(format!("{}:7878", args[1])).await?;
     println!("Connected to server");
 
-    // let msg = b"Hello, server!";
-    // stream.write_all(msg).await?;
-    // println!("Sent message to server: {}", String::from_utf8_lossy(msg));
-
     let file = File::create("out").await?;
     let mut buffered_file = BufWriter::new(file);
 
