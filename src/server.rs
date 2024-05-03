@@ -1,12 +1,11 @@
-use std::fmt::Error;
-use std::path::Path;
 use anyhow::Result;
 use local_ip_address::local_ip;
+use tokio::fs;
 use tokio::fs::File as AsyncFile;
-use tokio::io::{AsyncBufReadExt, BufReader as AsyncBufReader};
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
+use tokio::io;
+use tokio::io::{AsyncBufReadExt, BufReader as AsyncBufReader, Lines, Stdin};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 
 //TODO:
 // 1. Make this more shell like supporting commands like ls and showing who is connected
@@ -14,71 +13,104 @@ use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let (tx, mut rx) = mpsc::channel(100);
-
+    // Set up ip and a listener on the ip port
     let my_local_ip = local_ip()?;
     let listener = TcpListener::bind(format!("{:?}:7878", my_local_ip)).await?;
     println!("Server running at {:?} on port 7878", my_local_ip);
 
-    tokio::spawn(async move {
-        let mut lines = io::BufReader::new(io::stdin()).lines();
-        loop {
-            print!("server> ");
-            io::stdout().flush().await.expect("TODO: panic message");
-            if let Ok(line) = lines.next_line().await {
-                let _ = tx.send(line).await;
-            }
-        }
-    });
-
-    loop {
+    let mut lines_from_stdin = tokio::io::BufReader::new(io::stdin()).lines();
+    'outer: loop {
         let (mut socket, addr) = listener.accept().await?;
-        println!("New connection from {}", addr);
+        eprintln!("New connection from {}. Allow connection? [y/n]", addr);
 
-        if let Some(Some(filename)) = rx.recv().await {
-            tokio::spawn(async move {
-                let file = match AsyncFile::open(filename).await {
-                    Ok(file) => file,
-                    Err(e) => {
-                        eprintln!("Failed to open file: {:?}", e);
+        loop {
+            if let Some(response) = lines_from_stdin.next_line().await? {
+                match response.as_str() {
+                    "y" => {
+                        break;
+                    }
+                    "n" => {
+                        // TODO: send some sort of response telling client to close connection
+                        // Actually, socket goes out of scope so it automatically does this
+                        continue 'outer;
+                    }
+                    _ => (),
+                }
+            }
+            eprintln!("Expected [y/n]");
+        }
+
+        eprintln!("Enter path of file to send:");
+        let filename = next_line_from_stdin(&mut lines_from_stdin).await?;
+
+        tokio::spawn(async move {
+            let file = match AsyncFile::open(&filename).await {
+                Ok(file) => file,
+                Err(e) => {
+                    eprintln!("Failed to open file: {:?}", e);
+                    return;
+                }
+            };
+
+            let file_size = match fs::metadata(&filename).await {
+                Ok(file_metadata) => file_metadata.len(),
+                Err(e) => {
+                    eprintln!("Failed to open file: {:?}", e);
+                    return;
+                }
+            };
+
+            let msg_to_client = format!(
+                "{} wants to send {} ({} bytes) to you. Accept? [y/n]",
+                my_local_ip, &filename, file_size
+            );
+
+            if let Err(e) = socket.write_all(msg_to_client.as_bytes()).await {
+                eprintln!("Failed to write to socket; err = {:?}", e);
+                return;
+            }
+
+            let mut buf = vec![0; 4096]; // Adjust buffer size as needed
+
+            match socket.read(&mut buf).await {
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("Failed to read response from client; err = {:?}", e);
+                    return;
+                }
+            };
+
+            println!("hi");
+
+            let mut reader = AsyncBufReader::new(file);
+
+            loop {
+                match reader.read(&mut buf).await {
+                    Ok(0) => {
+                        println!("Finished sending file");
                         return;
                     }
-                };
-
-                let mut reader = AsyncBufReader::new(file);
-                let mut buf = vec![0; 4096]; // Adjust buffer size as needed
-
-                loop {
-                    match reader.read(&mut buf).await {
-                        Ok(0) => {
-                            println!("Finished sending file");
-                            return;
-                        }
-                        Ok(n) => {
-                            if let Err(e) = socket.write_all(&buf[..n]).await {
-                                eprintln!("Failed to write to socket; err = {:?}", e);
-                                return;
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to read from file; err = {:?}", e);
+                    Ok(n) => {
+                        if let Err(e) = socket.write_all(&buf[..n]).await {
+                            eprintln!("Failed to write to socket; err = {:?}", e);
                             return;
                         }
                     }
+                    Err(e) => {
+                        eprintln!("Failed to read from file; err = {:?}", e);
+                        return;
+                    }
                 }
-            });
+            }
+        });
+    }
+}
+
+// Gets the next line from stdin
+async fn next_line_from_stdin(stdin_lines: &mut Lines<AsyncBufReader<Stdin>>) -> Result<String> {
+    loop {
+        if let Some(response) = stdin_lines.next_line().await? {
+            return Ok(response);
         }
     }
-}
-
-fn parse_command(input: &str) -> Option<Command> {
-    let parts: Vec<_> = input.trim().split_whitespace().collect();
-    match parts.get(0) {
-        Some(&"file-out") if parts.len() == 2 => Some(Command::FileOut(parts[1].to_string())),
-        _ => None,
-    }
-}
-
-enum Command {
-    FileOut(String),
 }
