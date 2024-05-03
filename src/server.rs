@@ -1,9 +1,11 @@
+use std::fmt::Error;
+use std::path::Path;
 use anyhow::Result;
 use local_ip_address::local_ip;
 use tokio::fs::File as AsyncFile;
 use tokio::io::{AsyncBufReadExt, BufReader as AsyncBufReader};
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 
 //TODO:
@@ -14,16 +16,20 @@ use tokio::sync::mpsc;
 async fn main() -> Result<()> {
     let (tx, mut rx) = mpsc::channel(100);
 
-    tokio::spawn(async move {
-        let mut lines = io::BufReader::new(io::stdin()).lines();
-        while let Ok(line) = lines.next_line().await {
-            let _ = tx.send(line).await;
-        }
-    });
-
     let my_local_ip = local_ip()?;
     let listener = TcpListener::bind(format!("{:?}:7878", my_local_ip)).await?;
     println!("Server running at {:?} on port 7878", my_local_ip);
+
+    tokio::spawn(async move {
+        let mut lines = io::BufReader::new(io::stdin()).lines();
+        loop {
+            print!("server> ");
+            io::stdout().flush().await.expect("TODO: panic message");
+            if let Ok(line) = lines.next_line().await {
+                let _ = tx.send(line).await;
+            }
+        }
+    });
 
     loop {
         let (mut socket, addr) = listener.accept().await?;
@@ -63,4 +69,16 @@ async fn main() -> Result<()> {
             });
         }
     }
+}
+
+fn parse_command(input: &str) -> Option<Command> {
+    let parts: Vec<_> = input.trim().split_whitespace().collect();
+    match parts.get(0) {
+        Some(&"file-out") if parts.len() == 2 => Some(Command::FileOut(parts[1].to_string())),
+        _ => None,
+    }
+}
+
+enum Command {
+    FileOut(String),
 }
