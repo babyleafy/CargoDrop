@@ -16,6 +16,7 @@ async fn main() -> Result<()> {
     // Set up ip and a listener on the ip port
     let my_local_ip = local_ip()?;
     let listener = TcpListener::bind(format!("{:?}:7878", my_local_ip)).await?;
+
     println!("Server running at {:?} on port 7878", my_local_ip);
 
     let mut lines_from_stdin = tokio::io::BufReader::new(io::stdin()).lines();
@@ -60,12 +61,12 @@ async fn main() -> Result<()> {
                 }
             };
 
-            let msg_to_client = format!(
-                "{} wants to send {} ({} bytes) to you. Accept? [y/n]",
-                my_local_ip, &filename, file_size
-            );
+            if let Err(e) = socket.write_u64(file_size).await {
+                eprintln!("Failed to write to socket; err = {:?}", e);
+                return;
+            }
 
-            if let Err(e) = socket.write_all(msg_to_client.as_bytes()).await {
+            if let Err(e) = socket.write_all(filename.as_bytes()).await {
                 eprintln!("Failed to write to socket; err = {:?}", e);
                 return;
             }
@@ -79,8 +80,6 @@ async fn main() -> Result<()> {
                     return;
                 }
             };
-
-            println!("hi");
 
             let mut reader = AsyncBufReader::new(file);
 
@@ -103,6 +102,18 @@ async fn main() -> Result<()> {
                 }
             }
         });
+    }
+}
+
+async fn prompt_permission(lines_from_stdin: &mut Lines<AsyncBufReader<Stdin>>) -> Result<bool> {
+    loop {
+        if let Some(response) = lines_from_stdin.next_line().await? {
+            match response.as_str() {
+                "y" => return Ok(true),
+                "n" => return Ok(false),
+                _ => eprintln!("Expected [y/n]"),
+            }
+        }
     }
 }
 
