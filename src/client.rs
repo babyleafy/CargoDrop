@@ -26,8 +26,11 @@ async fn main() -> Result<()> {
     let file_name = String::from_utf8(buffer[..n].to_vec())?;
 
     if n == 0 {
-        println!("Could not reach handshake for file acceptance");
+        // TODO: bad error handling
+        panic!("Could not reach handshake for file acceptance");
     }
+
+    stream.flush().await?;
     eprintln!(
         "{} wants to send {} ({} bytes) to you. Allow file send? [y/n]",
         args[1], file_name, file_size

@@ -11,6 +11,9 @@ use tokio::net::TcpListener;
 // 1. Make this more shell like supporting commands like ls and showing who is connected
 // 2. Make server choose which client can connect
 
+// TODO:
+// There is a bug where if u connect on client side and then close the connection it breaks the server because server waits for talking
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Set up ip and a listener on the ip port
@@ -24,21 +27,8 @@ async fn main() -> Result<()> {
         let (mut socket, addr) = listener.accept().await?;
         eprintln!("New connection from {}. Allow connection? [y/n]", addr);
 
-        loop {
-            if let Some(response) = lines_from_stdin.next_line().await? {
-                match response.as_str() {
-                    "y" => {
-                        break;
-                    }
-                    "n" => {
-                        // TODO: send some sort of response telling client to close connection
-                        // Actually, socket goes out of scope so it automatically does this
-                        continue 'outer;
-                    }
-                    _ => (),
-                }
-            }
-            eprintln!("Expected [y/n]");
+        if !prompt_permission(&mut lines_from_stdin).await? {
+            continue 'outer;
         }
 
         eprintln!("Enter path of file to send:");
