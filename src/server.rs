@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
                 let (socket, addr) = accept_result?;
                 eprintln!("New connection from {}. Allow connection? [y/n]", addr);
 
-                if !prompt_permission(&mut stdin_lines).await? {
+                if prompt_permission(&mut stdin_lines).await? {
                     let mut connections_lock = connections.lock().await;
                     connections_lock.push(socket);
                     eprintln!("Connection from {} accepted.", addr);

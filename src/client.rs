@@ -19,52 +19,30 @@ async fn main() -> Result<()> {
 
     let mut buffer = [0; BUF_SIZ]; // Adjust buffer size as needed
 
-    let file_size = stream.read_u64().await?;
-
-    let n = stream.read(&mut buffer).await?;
-    let file_name = String::from_utf8(buffer[..n].to_vec())?;
-
-    if n == 0 {
-        panic!("Could not reach handshake for file acceptance");
-    }
-
     println!("Connected to server");
 
     stream.flush().await?;
-    /*eprintln!(
-        "{} wants to send {} ({} bytes) to you. Allow file send? [y/n]",
-        args[1], file_name, file_size
-    );
-    let mut lines_from_stdin = tokio::io::BufReader::new(io::stdin()).lines();
-    loop {
-        if let Some(response) = lines_from_stdin.next_line().await? {
-            match response.as_str() {
-                "y" => {
-                    stream.write("y".as_bytes()).await?;
-                    break;
-                }
-                "n" => {
-                    return Ok(());
-                }
-                _ => (),
-            }
-        }
-        eprintln!("Expected [y/n]");
-    }*/
 
-    let file = File::create(file_name).await?;
-    let mut buffered_file = BufWriter::new(file);
     loop {
         let n = stream.read(&mut buffer).await?;
         if n == 0 {
             break;
         }
+
+        println!("Received data from the server. Enter a file name to save the data:");
+        let mut file_name = String::new();
+        io::stdin().read_line(&mut file_name).await?;
+        file_name = file_name.trim().to_string();
+
+        let file = File::create(&file_name).await?;
+        let mut buffered_file = BufWriter::new(file);
         buffered_file.write_all(&buffer[..n]).await?;
+        buffered_file.flush().await?;
+
+        println!("Data saved to file: {}", file_name);
     }
 
-    buffered_file.flush().await?;
-
-    println!("client done");
+    println!("Client done");
 
     Ok(())
 }
