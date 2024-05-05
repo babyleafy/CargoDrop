@@ -1,4 +1,5 @@
 use anyhow::Result;
+use core::panic;
 use std::env;
 
 use tokio::fs::File;
@@ -37,10 +38,19 @@ async fn main() -> Result<()> {
 
         let mut file_name_buffer = vec![0; 255];
         stream.read_exact(&mut file_name_buffer).await?;
-        let file_name_received = String::from_utf8_lossy(&file_name_buffer);
-        let file_name_received = file_name_received.trim_end_matches('\0').to_string();
+        let file_name_length = match file_name_buffer.iter().position(|x| *x == b'\0') {
+            None => {
+                // TODO: error handling
+                panic!("bad");
+            }
+            Some(idx) => idx,
+        };
+        let file_name_received = String::from_utf8(file_name_buffer[..file_name_length].to_vec())?;
 
-        println!("Received file: {} (size: {} bytes)", file_name_received, file_size);
+        println!(
+            "Received file: {} (size: {} bytes)",
+            file_name_received, file_size
+        );
         println!("Do you want to save the file? (y/n)");
 
         let mut confirm = String::new();
