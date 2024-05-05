@@ -21,38 +21,43 @@ async fn main() -> Result<()> {
 
     println!("Connected to server");
 
-    stream.flush().await?;
-
     let mut stdin = io::BufReader::new(io::stdin());
-    let mut file_name = String::new();
 
     loop {
-        let n = stream.read(&mut buffer).await?;
-        if n == 0 {
+        let file_size = stream.read_u64().await?;
+        if file_size == 0 {
             break;
         }
 
-        println!("Received data from the server. Do you want to save the file? (y/n)");
+        let mut file_name = vec![0; 255];
+        stream.read_exact(&mut file_name).await?;
+        let file_name = String::from_utf8_lossy(&file_name);
+        let file_name = file_name.trim_end_matches('\0').to_string();
+
+        println!("Received file: {} (size: {} bytes)", file_name, file_size);
+        println!("Do you want to save the file? (y/n)");
+
         let mut confirm = String::new();
         stdin.read_line(&mut confirm).await?;
         confirm = confirm.trim().to_lowercase();
 
         if confirm == "y" {
-            println!("Enter a file name to save the data:");
-            stdin.read_line(&mut file_name).await?;
-            file_name = file_name.trim().to_string();
-
             let file = File::create(&file_name).await?;
             let mut buffered_file = BufWriter::new(file);
-            buffered_file.write_all(&buffer[..n]).await?;
-            buffered_file.flush().await?;
 
-            println!("Data saved to file: {}", file_name);
+            let mut received_size = 0;
+            while received_size < file_size {
+                let n = stream.read(&mut buffer).await?;
+                buffered_file.write_all(&buffer[..n]).await?;
+                received_size += n as u64;
+            }
+
+            buffered_file.flush().await?;
+            println!("File saved: {}", file_name);
         } else {
             println!("File transfer rejected.");
+            stream.read_exact(&mut buffer[..file_size as usize]).await?;
         }
-
-        file_name.clear();
     }
 
     println!("Client done");
