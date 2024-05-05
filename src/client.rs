@@ -23,6 +23,9 @@ async fn main() -> Result<()> {
 
     stream.flush().await?;
 
+    let mut stdin = io::BufReader::new(io::stdin());
+    let mut file_name = String::new();
+
     loop {
         let n = stream.read(&mut buffer).await?;
         if n == 0 {
@@ -30,8 +33,7 @@ async fn main() -> Result<()> {
         }
 
         println!("Received data from the server. Enter a file name to save the data:");
-        let mut file_name = String::new();
-        io::stdin().read_line(&mut file_name).await?;
+        stdin.read_line(&mut file_name).await?;
         file_name = file_name.trim().to_string();
 
         let file = File::create(&file_name).await?;
@@ -40,6 +42,7 @@ async fn main() -> Result<()> {
         buffered_file.flush().await?;
 
         println!("Data saved to file: {}", file_name);
+        file_name.clear();
     }
 
     println!("Client done");
