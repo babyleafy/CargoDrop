@@ -1,4 +1,5 @@
 use anyhow::Result;
+use core::panic;
 use std::env;
 
 use tokio::fs::File;
@@ -11,60 +12,82 @@ async fn main() -> Result<()> {
 
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        // TODO: this is bad error handling
         panic!("Need to pass in IP address as argument for client");
     }
 
     let mut stream = TcpStream::connect(format!("{}:7878", args[1])).await?;
-    println!("Connected to server");
 
     let mut buffer = [0; BUF_SIZ]; // Adjust buffer size as needed
 
-    let file_size = stream.read_u64().await?;
+    println!("Attempting to connect to server");
 
-    let n = stream.read(&mut buffer).await?;
-    let file_name = String::from_utf8(buffer[..n].to_vec())?;
+    let mut stdin = io::BufReader::new(io::stdin());
 
-    if n == 0 {
-        // TODO: bad error handling
-        panic!("Could not reach handshake for file acceptance");
-    }
-
-    stream.flush().await?;
-    eprintln!(
-        "{} wants to send {} ({} bytes) to you. Allow file send? [y/n]",
-        args[1], file_name, file_size
-    );
-    let mut lines_from_stdin = tokio::io::BufReader::new(io::stdin()).lines();
     loop {
-        if let Some(response) = lines_from_stdin.next_line().await? {
-            match response.as_str() {
-                "y" => {
-                    stream.write("y".as_bytes()).await?;
-                    break;
-                }
-                "n" => {
-                    return Ok(());
-                }
-                _ => (),
+        eprintln!("looped");
+
+        let file_size = match stream.read_u64().await {
+            Ok(file_size) => file_size,
+            Err(_) => {
+                eprintln!("Server rejected your connection");
+                return Ok(());
             }
-        }
-        eprintln!("Expected [y/n]");
-    }
-
-    let file = File::create(file_name).await?;
-    let mut buffered_file = BufWriter::new(file);
-    loop {
-        let n = stream.read(&mut buffer).await?;
-        if n == 0 {
+        };
+        if file_size == 0 {
             break;
         }
-        buffered_file.write_all(&buffer[..n]).await?;
+
+        println!("Connected to server.");
+
+        stream.read_exact(&mut buffer).await?;
+        let file_name_length = match buffer.iter().position(|x| *x == b'\0') {
+            None => {
+                panic!("Server did not send file name correctly");
+            }
+            Some(idx) => idx,
+        };
+        let file_name_received = String::from_utf8(buffer[..file_name_length].to_vec())?;
+
+        println!(
+            "Received file: {} (size: {} bytes)",
+            file_name_received, file_size
+        );
+        println!("Do you want to save the file? (y/n)");
+
+        let mut confirm = String::new();
+        stdin.read_line(&mut confirm).await?;
+        confirm = confirm.trim().to_lowercase();
+
+        if confirm == "y" {
+            println!("Enter a filename to save the file:");
+            let mut file_name = String::new();
+            stdin.read_line(&mut file_name).await?;
+            file_name = file_name.trim().to_string();
+
+            let file = File::create(&file_name).await?;
+            let mut buffered_file = BufWriter::new(file);
+
+            let mut received_size = BUF_SIZ - file_name_length - 1;
+
+            buffered_file
+                .write_all(&buffer[file_name_length + 1..])
+                .await?;
+
+            while (received_size as u64) < file_size {
+                let n = stream.read(&mut buffer).await?;
+                buffered_file.write_all(&buffer[..n]).await?;
+                received_size += n;
+            }
+
+            buffered_file.flush().await?;
+            println!("File saved: {}", file_name);
+        } else {
+            println!("File transfer rejected.");
+            stream.read_exact(&mut buffer[..file_size as usize]).await?;
+        }
     }
 
-    buffered_file.flush().await?;
-
-    println!("client done");
+    println!("Client done");
 
     Ok(())
 }
