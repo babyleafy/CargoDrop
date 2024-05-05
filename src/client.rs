@@ -12,7 +12,6 @@ async fn main() -> Result<()> {
 
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        // TODO: this is bad error handling
         panic!("Need to pass in IP address as argument for client");
     }
 
@@ -36,11 +35,12 @@ async fn main() -> Result<()> {
             break;
         }
 
+        println!("Connected to server.");
+
         stream.read_exact(&mut buffer).await?;
         let file_name_length = match buffer.iter().position(|x| *x == b'\0') {
             None => {
-                // TODO: error handling
-                panic!("bad");
+                panic!("Server did not send file name correctly");
             }
             Some(idx) => idx,
         };
@@ -65,15 +65,16 @@ async fn main() -> Result<()> {
             let file = File::create(&file_name).await?;
             let mut buffered_file = BufWriter::new(file);
 
+            let mut received_size = BUF_SIZ - file_name_length - 1;
+
             buffered_file
                 .write_all(&buffer[file_name_length + 1..])
                 .await?;
 
-            let mut received_size = 0;
-            while received_size < file_size {
+            while (received_size as u64) < file_size {
                 let n = stream.read(&mut buffer).await?;
                 buffered_file.write_all(&buffer[..n]).await?;
-                received_size += n as u64;
+                received_size += n;
             }
 
             buffered_file.flush().await?;
