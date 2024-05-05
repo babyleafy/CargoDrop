@@ -29,12 +29,12 @@ async fn main() -> Result<()> {
             break;
         }
 
-        let mut file_name = vec![0; 255];
-        stream.read_exact(&mut file_name).await?;
-        let file_name = String::from_utf8_lossy(&file_name);
-        let file_name = file_name.trim_end_matches('\0').to_string();
+        let mut file_name_buffer = vec![0; 255];
+        stream.read_exact(&mut file_name_buffer).await?;
+        let file_name_received = String::from_utf8_lossy(&file_name_buffer);
+        let file_name_received = file_name_received.trim_end_matches('\0').to_string();
 
-        println!("Received file: {} (size: {} bytes)", file_name, file_size);
+        println!("Received file: {} (size: {} bytes)", file_name_received, file_size);
         println!("Do you want to save the file? (y/n)");
 
         let mut confirm = String::new();
@@ -42,6 +42,11 @@ async fn main() -> Result<()> {
         confirm = confirm.trim().to_lowercase();
 
         if confirm == "y" {
+            println!("Enter a filename to save the file:");
+            let mut file_name = String::new();
+            stdin.read_line(&mut file_name).await?;
+            file_name = file_name.trim().to_string();
+
             let file = File::create(&file_name).await?;
             let mut buffered_file = BufWriter::new(file);
 
