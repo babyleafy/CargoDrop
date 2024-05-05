@@ -32,16 +32,26 @@ async fn main() -> Result<()> {
             break;
         }
 
-        println!("Received data from the server. Enter a file name to save the data:");
-        stdin.read_line(&mut file_name).await?;
-        file_name = file_name.trim().to_string();
+        println!("Received data from the server. Do you want to save the file? (y/n)");
+        let mut confirm = String::new();
+        stdin.read_line(&mut confirm).await?;
+        confirm = confirm.trim().to_lowercase();
 
-        let file = File::create(&file_name).await?;
-        let mut buffered_file = BufWriter::new(file);
-        buffered_file.write_all(&buffer[..n]).await?;
-        buffered_file.flush().await?;
+        if confirm == "y" {
+            println!("Enter a file name to save the data:");
+            stdin.read_line(&mut file_name).await?;
+            file_name = file_name.trim().to_string();
 
-        println!("Data saved to file: {}", file_name);
+            let file = File::create(&file_name).await?;
+            let mut buffered_file = BufWriter::new(file);
+            buffered_file.write_all(&buffer[..n]).await?;
+            buffered_file.flush().await?;
+
+            println!("Data saved to file: {}", file_name);
+        } else {
+            println!("File transfer rejected.");
+        }
+
         file_name.clear();
     }
 
