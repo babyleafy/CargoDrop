@@ -69,6 +69,21 @@ async fn broadcast_file_to_all(filename: &String, connections: &Arc<Mutex<Vec<Tc
         }
     };
 
+    if let Err(e) = socket.write_u64(file_size).await {
+        eprintln!("Failed to write to socket; err = {:?}", e);
+        return;
+    }
+
+    if let Err(e) = socket.write_all(filename).await {
+        eprintln!("Failed to write to socket; err = {:?}", e);
+        return;
+    }
+
+    if let Err(e) = socket.write_u8(filename).await {
+        eprintln!("Failed to write to socket; err = {:?}", e);
+        return;
+    }
+
     let mut connections_lock = connections.lock().await;
 
     for socket in connections_lock.iter_mut() {

@@ -19,12 +19,18 @@ async fn main() -> Result<()> {
 
     let mut buffer = [0; BUF_SIZ]; // Adjust buffer size as needed
 
-    println!("Connected to server");
+    println!("Attempting to connect to server");
 
     let mut stdin = io::BufReader::new(io::stdin());
 
     loop {
-        let file_size = stream.read_u64().await?;
+        let file_size = match stream.read_u64().await {
+            Ok(file_size) => file_size,
+            Err(_) => {
+                eprintln!("Server rejected your connection");
+                return Ok(());
+            }
+        };
         if file_size == 0 {
             break;
         }
