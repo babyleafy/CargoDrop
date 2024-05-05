@@ -36,16 +36,15 @@ async fn main() -> Result<()> {
             break;
         }
 
-        let mut file_name_buffer = vec![0; 255];
-        stream.read_exact(&mut file_name_buffer).await?;
-        let file_name_length = match file_name_buffer.iter().position(|x| *x == b'\0') {
+        stream.read_exact(&mut buffer).await?;
+        let file_name_length = match buffer.iter().position(|x| *x == b'\0') {
             None => {
                 // TODO: error handling
                 panic!("bad");
             }
             Some(idx) => idx,
         };
-        let file_name_received = String::from_utf8(file_name_buffer[..file_name_length].to_vec())?;
+        let file_name_received = String::from_utf8(buffer[..file_name_length].to_vec())?;
 
         println!(
             "Received file: {} (size: {} bytes)",
@@ -65,6 +64,10 @@ async fn main() -> Result<()> {
 
             let file = File::create(&file_name).await?;
             let mut buffered_file = BufWriter::new(file);
+
+            buffered_file
+                .write_all(&buffer[file_name_length + 1..])
+                .await?;
 
             let mut received_size = 0;
             while received_size < file_size {
