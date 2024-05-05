@@ -16,7 +16,6 @@ async fn main() -> Result<()> {
     }
 
     let mut stream = TcpStream::connect(format!("{}:7878", args[1])).await?;
-    println!("Connected to server");
 
     let mut buffer = [0; BUF_SIZ]; // Adjust buffer size as needed
 
@@ -26,12 +25,13 @@ async fn main() -> Result<()> {
     let file_name = String::from_utf8(buffer[..n].to_vec())?;
 
     if n == 0 {
-        // TODO: bad error handling
         panic!("Could not reach handshake for file acceptance");
     }
 
+    println!("Connected to server");
+
     stream.flush().await?;
-    eprintln!(
+    /*eprintln!(
         "{} wants to send {} ({} bytes) to you. Allow file send? [y/n]",
         args[1], file_name, file_size
     );
@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
             }
         }
         eprintln!("Expected [y/n]");
-    }
+    }*/
 
     let file = File::create(file_name).await?;
     let mut buffered_file = BufWriter::new(file);

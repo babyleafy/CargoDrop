@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use anyhow::Result;
 use local_ip_address::local_ip;
 use tokio::fs;
@@ -5,93 +6,116 @@ use tokio::fs::File as AsyncFile;
 use tokio::io;
 use tokio::io::{AsyncBufReadExt, BufReader as AsyncBufReader, Lines, Stdin};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
-
-//TODO:
-// 1. Make this more shell like supporting commands like ls and showing who is connected
-// 2. Make server choose which client can connect
-
-// TODO:
-// There is a bug where if u connect on client side and then close the connection it breaks the server because server waits for talking
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{mpsc, Mutex};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // Set up ip and a listener on the ip port
     let my_local_ip = local_ip()?;
     let listener = TcpListener::bind(format!("{:?}:7878", my_local_ip)).await?;
-
     println!("Server running at {:?} on port 7878", my_local_ip);
 
-    let mut lines_from_stdin = tokio::io::BufReader::new(io::stdin()).lines();
-    'outer: loop {
-        let (mut socket, addr) = listener.accept().await?;
-        eprintln!("New connection from {}. Allow connection? [y/n]", addr);
+    // Track connections
+    let connections = Arc::new(Mutex::new(Vec::new()));
+    let (tx, mut rx) = mpsc::channel::<String>(100);
 
-        if !prompt_permission(&mut lines_from_stdin).await? {
-            continue 'outer;
+    // Spawn task to listen for incoming files to send to all clients
+    tokio::spawn({
+        let connections = connections.clone();
+        async move {
+            while let Some(filename) = rx.recv().await {
+                broadcast_file_to_all(&filename, &connections).await;
+            }
+        }
+    });
+
+    let mut stdin_lines = tokio::io::BufReader::new(io::stdin()).lines();
+    loop {
+        tokio::select! {
+            accept_result = listener.accept() => {
+                let (socket, addr) = accept_result?;
+                eprintln!("New connection from {}. Allow connection? [y/n]", addr);
+
+                if !prompt_permission(&mut stdin_lines).await? {
+                    let mut connections_lock = connections.lock().await;
+                    connections_lock.push(socket);
+                    eprintln!("Connection from {} accepted.", addr);
+                } else {
+                    println!("Connection from {} rejected.", addr);
+                }
+            },
+            Ok(line) = stdin_lines.next_line() => {
+                process_command_input(line, &tx).await;
+            },
+        }
+    }
+}
+
+async fn broadcast_file_to_all(filename: &String, connections: &Arc<Mutex<Vec<TcpStream>>>) {
+    let file = match AsyncFile::open(&filename).await {
+        Ok(file) => file,
+        Err(e) => {
+            eprintln!("Failed to open file: {:?}", e);
+            return;
+        }
+    };
+
+    let file_size = match fs::metadata(&filename).await {
+        Ok(file_metadata) => file_metadata.len(),
+        Err(e) => {
+            eprintln!("Failed to open file: {:?}", e);
+            return;
+        }
+    };
+
+    let mut connections_lock = connections.lock().await;
+
+    for socket in connections_lock.iter_mut() {
+        if let Err(e) = socket.write_u64(file_size).await {
+            eprintln!("Failed to write to socket; err = {:?}", e);
+            continue;
         }
 
-        eprintln!("Enter path of file to send:");
-        let filename = next_line_from_stdin(&mut lines_from_stdin).await?;
+        if let Err(e) = socket.write_all(filename.as_bytes()).await {
+            eprintln!("Failed to write to socket; err = {:?}", e);
+            continue;
+        }
 
-        tokio::spawn(async move {
-            let file = match AsyncFile::open(&filename).await {
-                Ok(file) => file,
-                Err(e) => {
-                    eprintln!("Failed to open file: {:?}", e);
-                    return;
+        let mut buf = vec![0; 4096]; // Adjust buffer size as needed
+
+        let mut reader = AsyncBufReader::new(file.try_clone().await.unwrap());
+
+        loop {
+            match reader.read(&mut buf).await {
+                Ok(0) => {
+                    println!("Finished sending file to {}", socket.peer_addr().unwrap());
+                    break;
                 }
-            };
-
-            let file_size = match fs::metadata(&filename).await {
-                Ok(file_metadata) => file_metadata.len(),
-                Err(e) => {
-                    eprintln!("Failed to open file: {:?}", e);
-                    return;
-                }
-            };
-
-            if let Err(e) = socket.write_u64(file_size).await {
-                eprintln!("Failed to write to socket; err = {:?}", e);
-                return;
-            }
-
-            if let Err(e) = socket.write_all(filename.as_bytes()).await {
-                eprintln!("Failed to write to socket; err = {:?}", e);
-                return;
-            }
-
-            let mut buf = vec![0; 4096]; // Adjust buffer size as needed
-
-            match socket.read(&mut buf).await {
-                Ok(_) => {}
-                Err(e) => {
-                    eprintln!("Failed to read response from client; err = {:?}", e);
-                    return;
-                }
-            };
-
-            let mut reader = AsyncBufReader::new(file);
-
-            loop {
-                match reader.read(&mut buf).await {
-                    Ok(0) => {
-                        println!("Finished sending file");
-                        return;
-                    }
-                    Ok(n) => {
-                        if let Err(e) = socket.write_all(&buf[..n]).await {
-                            eprintln!("Failed to write to socket; err = {:?}", e);
-                            return;
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to read from file; err = {:?}", e);
-                        return;
+                Ok(n) => {
+                    if let Err(e) = socket.write_all(&buf[..n]).await {
+                        eprintln!("Failed to write to socket; err = {:?}", e);
+                        break;
                     }
                 }
+                Err(e) => {
+                    eprintln!("Failed to read from file; err = {:?}", e);
+                    break;
+                }
             }
-        });
+        }
+    }
+}
+
+async fn process_command_input(line: Option<String>, tx: &mpsc::Sender<String>) {
+    if let Some(command) = line.expect("CLI command").trim().strip_prefix("send ") {
+        if !command.is_empty() {
+            tx.send(command.to_string()).await.unwrap();
+        } else {
+            println!("Error: Missing filename after 'send'.");
+        }
+    } else {
+        println!("Unrecognized command or missing filename. Expected format: 'send [filename]'");
     }
 }
 
