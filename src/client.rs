@@ -24,6 +24,8 @@ async fn main() -> Result<()> {
     let mut stdin = io::BufReader::new(io::stdin());
 
     loop {
+        eprintln!("looped");
+
         let file_size = match stream.read_u64().await {
             Ok(file_size) => file_size,
             Err(_) => {

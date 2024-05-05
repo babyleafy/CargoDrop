@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use anyhow::Result;
 use local_ip_address::local_ip;
+use std::sync::Arc;
 use tokio::fs;
 use tokio::fs::File as AsyncFile;
 use tokio::io;
@@ -69,8 +69,6 @@ async fn broadcast_file_to_all(filename: &String, connections: &Arc<Mutex<Vec<Tc
         }
     };
 
-
-
     let mut connections_lock = connections.lock().await;
 
     for socket in connections_lock.iter_mut() {
@@ -87,12 +85,12 @@ async fn broadcast_file_to_all(filename: &String, connections: &Arc<Mutex<Vec<Tc
             eprintln!("Failed to write to socket; err = {:?}", e);
             return;
         }
-    
+
         if let Err(e) = socket.write_all(filename.as_bytes()).await {
             eprintln!("Failed to write to socket; err = {:?}", e);
             return;
         }
-    
+
         if let Err(e) = socket.write_u8(0).await {
             eprintln!("Failed to write to socket; err = {:?}", e);
             return;
@@ -148,10 +146,10 @@ async fn prompt_permission(lines_from_stdin: &mut Lines<AsyncBufReader<Stdin>>) 
 }
 
 // Gets the next line from stdin
-async fn next_line_from_stdin(stdin_lines: &mut Lines<AsyncBufReader<Stdin>>) -> Result<String> {
-    loop {
-        if let Some(response) = stdin_lines.next_line().await? {
-            return Ok(response);
-        }
-    }
-}
+// async fn next_line_from_stdin(stdin_lines: &mut Lines<AsyncBufReader<Stdin>>) -> Result<String> {
+//     loop {
+//         if let Some(response) = stdin_lines.next_line().await? {
+//             return Ok(response);
+//         }
+//     }
+// }
