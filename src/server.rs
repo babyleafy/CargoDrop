@@ -72,7 +72,7 @@ async fn broadcast_file_to_all(filename: &String, connections: &Arc<Mutex<Vec<Tc
     let mut connections_lock = connections.lock().await;
 
     for socket in connections_lock.iter_mut() {
-        if let Err(e) = socket.write_u64(file_size).await {
+        /*if let Err(e) = socket.write_u64(file_size).await {
             eprintln!("Failed to write to socket; err = {:?}", e);
             continue;
         }
@@ -80,7 +80,7 @@ async fn broadcast_file_to_all(filename: &String, connections: &Arc<Mutex<Vec<Tc
         if let Err(e) = socket.write_all(filename.as_bytes()).await {
             eprintln!("Failed to write to socket; err = {:?}", e);
             continue;
-        }
+        }*/
 
         let mut buf = vec![0; 4096]; // Adjust buffer size as needed
 
