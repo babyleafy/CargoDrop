@@ -1,1 +1,2 @@
-Cargo Drop - CIS1905 Final Project
+Cargo Drop
+A convenient interface allowing fast file transfers between computers through the command line
